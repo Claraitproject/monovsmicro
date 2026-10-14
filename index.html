@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Монолит или микросервисы</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1f2430; --muted:#6b7280; --line:#dfe3e8;
+    --mono:#3b5bdb; --mono-soft:#eef2ff;
+    --micro:#0c8599; --micro-soft:#e6f7f9;
+    --ok:#2b8a3e; --ok-soft:#ebfbee; --ok-line:#b2f2bb;
+    --bad:#c92a2a; --bad-soft:#fff5f5; --bad-line:#ffc9c9;
+    --warn:#e67700; --warn-soft:#fff9db;
+    --focus:#f59f00;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:20px 16px 32px}
+
+  .task{background:#eceef1;border-radius:10px;padding:14px 18px;margin-bottom:16px}
+  .task b{font-size:17px}
+  .task p{margin:6px 0 0;font-size:16px}
+  .task .hint{font-size:13px;color:var(--muted);margin-top:8px}
+
+  .board{display:grid;grid-template-columns:1fr minmax(240px,1.05fr) 1fr;gap:14px;align-items:stretch}
+  .zone{background:var(--panel);border:2px dashed var(--line);border-radius:12px;padding:12px;min-height:420px;display:flex;flex-direction:column;transition:border-color .15s,background .15s}
+  .zone h2{font-size:16px;margin:0 0 10px;display:flex;align-items:center;gap:8px;color:var(--zc)}
+  .zone h2 svg{flex:none}
+  #mono{--zc:var(--mono);--zsoft:var(--mono-soft)}
+  #micro{--zc:var(--micro);--zsoft:var(--micro-soft)}
+  #pool{--zc:#868e96;--zsoft:#f1f3f5;background:transparent;border-color:transparent}
+  #pool h2{color:var(--muted);font-weight:600;font-size:14px;justify-content:center}
+  .zone.over{border-color:var(--zc);background:var(--zsoft);border-style:solid}
+  body.picking #mono, body.picking #micro{border-color:var(--zc);cursor:pointer}
+  body.picking #pool{border-color:#ced4da;cursor:pointer}
+
+  .cards{display:flex;flex-direction:column;gap:8px;flex:1}
+  .cards:empty::before{content:attr(data-empty);color:var(--muted);font-size:13px;text-align:center;margin:auto;padding:24px 8px}
+
+  .card{position:relative;background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:8px;padding:10px 30px 10px 12px;cursor:grab;user-select:none;-webkit-user-select:none;touch-action:none;box-shadow:0 1px 2px rgba(0,0,0,.05);font-size:14px;transition:box-shadow .15s,background .15s,opacity .15s}
+  .card:hover{box-shadow:0 3px 8px rgba(0,0,0,.09)}
+  .card:focus{outline:none}
+  .card:focus-visible{outline:2px dashed var(--focus);outline-offset:2px}
+  .card.selected{outline:3px solid var(--focus);outline-offset:2px}
+  .card.dragging{opacity:.3}
+  .card .why{display:none;margin-top:6px;font-size:12.5px;color:#495057;border-top:1px solid rgba(0,0,0,.07);padding-top:6px}
+  .card.correct{background:var(--ok-soft);border-color:var(--ok-line);border-left-color:var(--ok)}
+  .card.wrong{background:var(--bad-soft);border-color:var(--bad-line);border-left-color:var(--bad)}
+  .card.correct .why,.card.wrong .why{display:block}
+  .card.correct::after,.card.wrong::after{position:absolute;top:8px;right:9px;font-weight:700;font-size:15px}
+  .card.correct::after{content:"✓";color:var(--ok)}
+  .card.wrong::after{content:"✗";color:var(--bad)}
+  .card .why b{color:var(--bad)}
+
+  .ghost{position:fixed;z-index:1000;pointer-events:none;margin:0;cursor:grabbing;box-shadow:0 12px 28px rgba(0,0,0,.2);transform:rotate(1.5deg)}
+
+  .toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:16px}
+  .progress{color:var(--muted);font-size:14px;margin-right:auto}
+  button{font:inherit;font-size:14px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:9px 16px;cursor:pointer}
+  button:hover{background:#f1f3f5}
+  button.primary{background:var(--mono);border-color:var(--mono);color:#fff}
+  button.primary:hover{background:#3049b8}
+  button[hidden]{display:none}
+
+  .result{margin-top:12px;border-radius:10px;padding:12px 16px;font-size:15px}
+  .result[hidden]{display:none}
+  .result.ok{background:var(--ok-soft);color:var(--ok);border:1px solid var(--ok-line)}
+  .result.bad{background:var(--bad-soft);color:var(--bad);border:1px solid var(--bad-line)}
+  .result.warn{background:var(--warn-soft);color:var(--warn);border:1px solid #ffe066}
+
+  .keys{margin-top:14px;font-size:12px;color:var(--muted)}
+  kbd{font:11px/1 ui-monospace,Consolas,monospace;border:1px solid #ced4da;border-bottom-width:2px;border-radius:4px;padding:2px 5px;background:#fff}
+
+  @media (max-width:760px){
+    .board{grid-template-columns:1fr 1fr}
+    #pool{grid-column:1/-1;order:-1;min-height:auto;border-color:var(--line);border-style:dashed}
+    .zone{min-height:240px}
+    .card{font-size:13px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="task">
+    <b>Задание.</b>
+    <p>В этом уроке вы изучили монолиты, микросервисы и различия между ними. Соотнесите описания ниже с микросервисной или монолитной архитектурой.</p>
+    <div class="hint">Перетащите карточку в нужную колонку — или нажмите на карточку, а затем на колонку. Когда разложите все, нажмите «Проверить».</div>
+  </div>
+
+  <div class="board">
+    <section class="zone" id="mono" data-zone="mono">
+      <h2>
+        <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><rect x="2" y="2" width="18" height="18" rx="3" fill="currentColor" opacity=".85"/></svg>
+        Монолит
+      </h2>
+      <div class="cards" data-empty="Перетащите сюда характеристики монолита"></div>
+    </section>
+
+    <section class="zone" id="pool" data-zone="pool">
+      <h2>Характеристики</h2>
+      <div class="cards" data-empty="Все карточки разложены — нажмите «Проверить»"></div>
+    </section>
+
+    <section class="zone" id="micro" data-zone="micro">
+      <h2>
+        <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true" fill="currentColor" opacity=".85"><rect x="2" y="2" width="8" height="8" rx="2"/><rect x="12" y="2" width="8" height="8" rx="2"/><rect x="2" y="12" width="8" height="8" rx="2"/><rect x="12" y="12" width="8" height="8" rx="2"/></svg>
+        Микросервисы
+      </h2>
+      <div class="cards" data-empty="Перетащите сюда характеристики микросервисов"></div>
+    </section>
+  </div>
+
+  <div class="toolbar">
+    <div class="progress" id="progress"></div>
+    <button id="btnFix" hidden>Вернуть ошибки</button>
+    <button id="btnReset">Начать заново</button>
+    <button id="btnCheck" class="primary">Проверить</button>
+  </div>
+  <div class="result" id="result" role="status" hidden></div>
+
+  <div class="keys">С клавиатуры: <kbd>Tab</kbd> — выбрать карточку, <kbd>←</kbd> — в «Монолит», <kbd>→</kbd> — в «Микросервисы», <kbd>↑</kbd> — вернуть в общий список.</div>
+</div>
+
+<script>
+/* ===== Содержимое упражнения: правьте здесь =====
+   side: "mono" — монолит, "micro" — микросервисы
+   why:  пояснение, которое показывается после проверки */
+const ITEMS = [
+  { side: "mono",  text: "Одна база кода: простые разработка и развертывание",
+    why: "Всё приложение собирается и выкатывается как один артефакт — один пайплайн, один деплой." },
+  { side: "mono",  text: "Ограниченный стек технологий",
+    why: "Модули живут в одном процессе, поэтому обычно используют один язык и один фреймворк." },
+  { side: "mono",  text: "Единая база кода проще понять и легче обслуживать",
+    why: "Пока система невелика, весь код в одном месте: навигация, отладка и рефакторинг проще." },
+  { side: "mono",  text: "Отказы влияют на всё приложение",
+    why: "Ошибка или утечка памяти в одном модуле может остановить весь процесс целиком." },
+  { side: "mono",  text: "Масштабирование только целиком",
+    why: "Чтобы усилить один нагруженный модуль, приходится запускать дополнительные копии всего приложения." },
+  { side: "mono",  text: "Общая база данных: транзакции и согласованность данных обеспечить проще",
+    why: "Одна ACID-транзакция в одной БД — без саг и согласованности «в конечном счёте»." },
+
+  { side: "micro", text: "Разнообразие технологий: можно выбрать, какие технологии подойдут в каждом случае",
+    why: "Каждый сервис — отдельное приложение, и команда выбирает для него подходящий язык и хранилище." },
+  { side: "micro", text: "Изолированные отказы. Отказоустойчивость выше",
+    why: "При правильной изоляции (таймауты, circuit breaker) сбой одного сервиса не роняет остальные." },
+  { side: "micro", text: "Взаимодействие между сервисами: дополнительные средства для координации и согласованности данных",
+    why: "Сетевые вызовы, брокеры сообщений, саги, идемпотентность — плата за распределённость." },
+  { side: "micro", text: "Децентрализованная разработка: каждый сервис разрабатывается и развертывается независимо",
+    why: "Команды владеют своими сервисами и выпускают их в своём ритме, не дожидаясь общего релиза." },
+  { side: "micro", text: "Независимое масштабирование отдельных компонентов",
+    why: "Можно добавить экземпляры только того сервиса, который испытывает нагрузку." },
+  { side: "micro", text: "Сложнее тестировать и отлаживать: нужны распределённая трассировка и сбор логов",
+    why: "Один запрос проходит через несколько сервисов, и найти причину ошибки без трассировки трудно." }
+];
+const LABEL = { mono: "Монолит", micro: "Микросервисы" };
+const PALETTE = ["#7048e8", "#e8590c", "#0ca678", "#1c7ed6", "#d6336c", "#5c940d"];
+/* ================================================ */
+
+const $ = s => document.querySelector(s);
+const zones = {
+  mono:  $("#mono .cards"),
+  pool:  $("#pool .cards"),
+  micro: $("#micro .cards")
+};
+const result = $("#result"), btnFix = $("#btnFix");
+let selected = null, drag = null;
+
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+
+function build(){
+  deselect();
+  Object.values(zones).forEach(z => z.innerHTML = "");
+  const order = shuffle(ITEMS.map((_, i) => i));
+  order.forEach((idx, n) => {
+    const it = ITEMS[idx];
+    const c = document.createElement("div");
+    c.className = "card";
+    c.tabIndex = 0;
+    c.setAttribute("role", "button");
+    c.dataset.idx = idx;
+    c.style.setProperty("--accent", PALETTE[n % PALETTE.length]);
+    const t = document.createElement("div"); t.className = "txt"; t.textContent = it.text;
+    const w = document.createElement("div"); w.className = "why";
+    c.append(t, w);
+    c.addEventListener("pointerdown", onDown);
+    c.addEventListener("keydown", onKey);
+    zones.pool.appendChild(c);
+  });
+  clearFeedback();
+  update();
+}
+
+function zoneOf(card){ return card.closest(".zone").dataset.zone; }
+
+function moveTo(card, zone){
+  zones[zone].appendChild(card);
+  deselect();
+  clearFeedback();
+  update();
+}
+
+function clearFeedback(){
+  document.querySelectorAll(".card").forEach(c => { c.classList.remove("correct","wrong"); c.querySelector(".why").textContent = ""; });
+  result.hidden = true;
+  btnFix.hidden = true;
+}
+
+function update(){
+  const total = ITEMS.length;
+  const placed = zones.mono.children.length + zones.micro.children.length;
+  $("#progress").textContent = `Разложено ${placed} из ${total}`;
+}
+
+function toggleSelect(card){
+  if (selected === card) { deselect(); return; }
+  deselect();
+  selected = card;
+  card.classList.add("selected");
+  document.body.classList.add("picking");
+}
+function deselect(){
+  if (selected) selected.classList.remove("selected");
+  selected = null;
+  document.body.classList.remove("picking");
+}
+
+/* ---- Перетаскивание (мышь и сенсорный экран) ---- */
+function onDown(e){
+  if (e.button !== 0) return;
+  const c = e.currentTarget, r = c.getBoundingClientRect();
+  drag = { c, x0:e.clientX, y0:e.clientY, dx:e.clientX-r.left, dy:e.clientY-r.top, w:r.width, moved:false, ghost:null, over:null };
+  c.setPointerCapture(e.pointerId);
+  c.addEventListener("pointermove", onMove);
+  c.addEventListener("pointerup", onUp);
+  c.addEventListener("pointercancel", onCancel);
+}
+function onMove(e){
+  if (!drag) return;
+  if (!drag.moved){
+    if (Math.hypot(e.clientX-drag.x0, e.clientY-drag.y0) < 6) return;
+    drag.moved = true;
+    deselect();
+    const g = drag.c.cloneNode(true);
+    g.classList.remove("selected","correct","wrong");
+    g.classList.add("ghost");
+    g.style.width = drag.w + "px";
+    document.body.appendChild(g);
+    drag.ghost = g;
+    drag.c.classList.add("dragging");
+  }
+  drag.ghost.style.left = (e.clientX - drag.dx) + "px";
+  drag.ghost.style.top  = (e.clientY - drag.dy) + "px";
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  const z = el ? el.closest(".zone") : null;
+  if (z !== drag.over){
+    if (drag.over) drag.over.classList.remove("over");
+    if (z) z.classList.add("over");
+    drag.over = z;
+  }
+  // автопрокрутка у краёв окна
+  if (e.clientY < 50) window.scrollBy(0, -14);
+  else if (e.clientY > window.innerHeight - 50) window.scrollBy(0, 14);
+}
+function finish(){
+  const d = drag; drag = null;
+  if (!d) return null;
+  d.c.removeEventListener("pointermove", onMove);
+  d.c.removeEventListener("pointerup", onUp);
+  d.c.removeEventListener("pointercancel", onCancel);
+  if (d.ghost) d.ghost.remove();
+  if (d.over) d.over.classList.remove("over");
+  d.c.classList.remove("dragging");
+  return d;
+}
+function onUp(){
+  const d = finish();
+  if (!d) return;
+  if (d.moved){ if (d.over) moveTo(d.c, d.over.dataset.zone); }
+  else toggleSelect(d.c);
+}
+function onCancel(){ finish(); }
+
+/* ---- Режим «нажать карточку, затем колонку» ---- */
+document.querySelectorAll(".zone").forEach(z => {
+  z.addEventListener("click", e => {
+    if (!selected || e.target.closest(".card")) return;
+    moveTo(selected, z.dataset.zone);
+  });
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape") deselect(); });
+
+/* ---- Клавиатура ---- */
+function onKey(e){
+  const c = e.currentTarget;
+  const map = { ArrowLeft:"mono", ArrowRight:"micro", ArrowUp:"pool" };
+  if (map[e.key]) { e.preventDefault(); moveTo(c, map[e.key]); c.focus(); }
+  else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSelect(c); }
+}
+
+/* ---- Проверка ---- */
+function showResult(cls, html){
+  result.className = "result " + cls;
+  result.innerHTML = html;
+  result.hidden = false;
+}
+function check(){
+  deselect();
+  const left = zones.pool.children.length;
+  if (left){
+    clearFeedback();
+    showResult("warn", `Осталось разложить карточек: ${left}. Распределите все характеристики и нажмите «Проверить».`);
+    return;
+  }
+  let ok = 0, n = 0;
+  ["mono","micro"].forEach(zone => {
+    [...zones[zone].children].forEach(c => {
+      const it = ITEMS[c.dataset.idx];
+      const why = c.querySelector(".why");
+      n++;
+      if (it.side === zone){
+        ok++;
+        c.classList.add("correct"); c.classList.remove("wrong");
+        why.textContent = it.why;
+      } else {
+        c.classList.add("wrong"); c.classList.remove("correct");
+        why.innerHTML = "";
+        const b = document.createElement("b"); b.textContent = "Это " + LABEL[it.side].toLowerCase() + ". ";
+        why.append(b, document.createTextNode(it.why));
+      }
+    });
+  });
+  if (ok === n){
+    showResult("ok", `Отлично! Все ${n} характеристик соотнесены верно.`);
+  } else {
+    showResult("bad", `Верно ${ok} из ${n}. Ошибочные карточки отмечены красным — прочитайте пояснения и попробуйте ещё раз.`);
+    btnFix.hidden = false;
+  }
+}
+function fixErrors(){
+  document.querySelectorAll(".card.wrong").forEach(c => zones.pool.appendChild(c));
+  clearFeedback();
+  update();
+}
+
+$("#btnCheck").addEventListener("click", check);
+$("#btnReset").addEventListener("click", build);
+btnFix.addEventListener("click", fixErrors);
+
+build();
+</script>
+</body>
+</html>
